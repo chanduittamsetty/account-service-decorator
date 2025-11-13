@@ -42,7 +42,15 @@ def account_rate_limit(
             raise TypeError("account_rate_limit decorator requires an async function")
 
         signature = inspect.signature(func)
-        env_key = records_per_page_env or f"{crawler_type.upper()}_RECORDS_PER_PAGE"
+        env_key = records_per_page_env or "RECORDS_PER_PAGE"
+        var_keyword_param = next(
+            (
+                name
+                for name, param in signature.parameters.items()
+                if param.kind == inspect.Parameter.VAR_KEYWORD
+            ),
+            None,
+        )
 
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -103,9 +111,17 @@ def account_rate_limit(
                 raise AccountServiceError("Account Service response missing account_id")
             resolved_request_count = reserve_response.get("request_count", resolved_request_count)
 
-            bound.arguments["account"] = account_payload
-            bound.arguments["account_id"] = account_id
-            bound.arguments["request_count"] = resolved_request_count
+            injected = {
+                "account": account_payload,
+                "account_id": account_id,
+                "request_count": resolved_request_count,
+            }
+
+            for key, value in injected.items():
+                if key in bound.arguments:
+                    bound.arguments[key] = value
+                elif var_keyword_param:
+                    bound.arguments.setdefault(var_keyword_param, {}).update({key: value})
 
             return await func(*bound.args, **bound.kwargs)
 
@@ -144,8 +160,7 @@ def _resolve_request_count(
 
 
 def _resolve_records_per_page(env_key: str) -> int:
-    fallback = os.getenv("RECORDS_PER_PAGE", "1")
-    value = os.getenv(env_key, fallback)
+    value = os.getenv(env_key, "1")
     try:
         return int(value)
     except (TypeError, ValueError):
