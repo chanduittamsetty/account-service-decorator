@@ -43,14 +43,6 @@ def account_rate_limit(
 
         signature = inspect.signature(func)
         env_key = records_per_page_env or "RECORDS_PER_PAGE"
-        var_keyword_param = next(
-            (
-                name
-                for name, param in signature.parameters.items()
-                if param.kind == inspect.Parameter.VAR_KEYWORD
-            ),
-            None,
-        )
 
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
