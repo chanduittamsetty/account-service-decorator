@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "account-service-decorator"
 version = "0.1.0"
 description = "Client utilities and decorator for the Account Service"
-readme = { text = "Account Service decorator client." }
+readme = "README.md"
 requires-python = ">=3.10"
 authors = [
     { name = "chandu ittamsetty" }
