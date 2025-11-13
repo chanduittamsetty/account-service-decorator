@@ -40,6 +40,23 @@ class AccountServiceClient:
         response.raise_for_status()
         return response.json()
 
+    async def reserve_account(
+        self,
+        crawler_type: str,
+        payload: Dict[str, Any],
+        account_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        headers: Dict[str, str] = {}
+        if account_id:
+            headers["x-user-id"] = account_id
+        response = await self.client.post(
+            f"/api/v1/accounts/{crawler_type}/reserve",
+            json=payload,
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def update_rate_limit(
         self,
         account_id: str,

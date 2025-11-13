@@ -61,19 +61,36 @@ def account_rate_limit(
 
             try:
                 async with AccountServiceClient(config.base_url, config.timeout) as client:
-                    account_payload = await client.get_account(
-                        crawler_type=crawler_type,
-                        account_id=account_override,
-                    )
-                    account_id = account_payload.get("account_id")
-                    if not account_id:
-                        raise AccountServiceError("Account Service response missing account_id")
-
-                    await client.update_rate_limit(
-                        account_id=account_id,
-                        crawler_type=crawler_type,
-                        increment=resolved_request_count,
-                    )
+                    reserve_payload: dict[str, Any] = {
+                        "request_count": resolved_request_count,
+                    }
+                    try:
+                        reserve_response = await client.reserve_account(
+                            crawler_type=crawler_type,
+                            payload=reserve_payload,
+                            account_id=account_override,
+                        )
+                    except httpx.HTTPStatusError as exc:
+                        if exc.response.status_code == 404:
+                            account_payload = await client.get_account(
+                                crawler_type=crawler_type,
+                                account_id=account_override,
+                            )
+                            account_id = account_payload.get("account_id")
+                            if not account_id:
+                                raise AccountServiceError("Account Service response missing account_id")
+                            await client.update_rate_limit(
+                                account_id=account_id,
+                                crawler_type=crawler_type,
+                                increment=resolved_request_count,
+                            )
+                            reserve_response = {
+                                "account": account_payload,
+                                "account_id": account_id,
+                                "request_count": resolved_request_count,
+                            }
+                        else:
+                            raise
             except httpx.HTTPStatusError as exc:
                 raise AccountServiceError(
                     f"Account Service request failed ({exc.response.status_code}): {exc.response.text}"
@@ -81,8 +98,14 @@ def account_rate_limit(
             except httpx.HTTPError as exc:
                 raise AccountServiceError(f"Account Service request error: {exc}") from exc
 
+            account_payload = reserve_response.get("account") or {}
+            account_id = reserve_response.get("account_id")
+            if not account_id:
+                raise AccountServiceError("Account Service response missing account_id")
+            resolved_request_count = reserve_response.get("request_count", resolved_request_count)
+
             bound.arguments["account"] = account_payload
-            bound.arguments["account_id"] = account_payload.get("account_id")
+            bound.arguments["account_id"] = account_id
             bound.arguments["request_count"] = resolved_request_count
 
             return await func(*bound.args, **bound.kwargs)
