@@ -117,13 +117,9 @@ def account_rate_limit(
                 "request_count": resolved_request_count,
             }
 
-            for key, value in injected.items():
-                if key in bound.arguments:
-                    bound.arguments[key] = value
-                elif var_keyword_param:
-                    bound.arguments.setdefault(var_keyword_param, {}).update({key: value})
-
-            return await func(*bound.args, **bound.kwargs)
+            call_kwargs = dict(bound.kwargs)
+            call_kwargs.update(injected)
+            return await func(*bound.args, **call_kwargs)
 
         return wrapper  # type: ignore[return-value]
 
