@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import math
-import os
 from functools import wraps
 from typing import Any, Awaitable, Callable, Optional, TypeVar
 
@@ -20,21 +19,18 @@ class AccountServiceError(RuntimeError):
 
 def account_rate_limit(
     *,
-    crawler_type: str,
+    type: str,
     request_count: Optional[int] = None,
     calculate_request_count: bool = False,
-    records_per_page_env: Optional[str] = None,
 ) -> Callable[[F], F]:
     """
     Decorator that reserves quota with Account Service before executing the wrapped crawler function.
 
     Args:
-        crawler_type: Identifier for the crawler (e.g. "google").
+        type: Identifier for the crawler (e.g. "google_account").
         request_count: Fixed request count to reserve. Defaults to 1 if not provided.
-        calculate_request_count: When True, derives request count from `num_results` argument and
-            records-per-page configuration.
-        records_per_page_env: Optional environment variable name to resolve records per page.
-            Defaults to `<CRAWLER_TYPE>_RECORDS_PER_PAGE` if omitted.
+        calculate_request_count: When True, derives request count from `num_results` and
+            the function arguments (`records_per_page` / `page_size`).
     """
 
     def decorator(func: F) -> F:
@@ -42,7 +38,7 @@ def account_rate_limit(
             raise TypeError("account_rate_limit decorator requires an async function")
 
         signature = inspect.signature(func)
-        env_key = records_per_page_env or "RECORDS_PER_PAGE"
+        account_type = type
 
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -54,7 +50,6 @@ def account_rate_limit(
                 bound.arguments,
                 request_count=request_count,
                 calculate_request_count=calculate_request_count,
-                records_per_page_env=env_key,
             )
 
             config = ClientConfig.from_env()
@@ -64,25 +59,28 @@ def account_rate_limit(
                     reserve_payload: dict[str, Any] = {"request_count": resolved_request_count}
                     try:
                         reserve_response = await client.reserve_account(
-                            crawler_type=crawler_type,
+                            type=account_type,
                             payload=reserve_payload,
                             account_id=account_override,
                         )
                         account_payload = reserve_response.get("account") or {}
                     except httpx.HTTPStatusError as exc:
                         if exc.response.status_code == 404:
-                            account_payload = await client.get_account(
-                                crawler_type=crawler_type,
+                            # Fallback: use get_account + update_rate_limit for older API versions
+                            get_response = await client.get_account(
+                                type=account_type,
                                 account_id=account_override,
                             )
-                            account_id = account_payload.get("account_id")
+                            account_id = get_response.get("account_id")
                             if not account_id:
                                 raise AccountServiceError("Account Service response missing account_id")
                             await client.update_rate_limit(
                                 account_id=account_id,
-                                crawler_type=crawler_type,
+                                type=account_type,
                                 increment=resolved_request_count,
                             )
+                            # Extract the nested account document from the response
+                            account_payload = get_response.get("account") or {}
                             reserve_response = {
                                 "account": account_payload,
                                 "account_id": account_id,
@@ -123,7 +121,6 @@ def _resolve_request_count(
     *,
     request_count: Optional[int],
     calculate_request_count: bool,
-    records_per_page_env: str,
 ) -> int:
     if request_count is not None:
         return max(int(request_count), 1)
@@ -140,23 +137,29 @@ def _resolve_request_count(
     except (TypeError, ValueError):
         return 1
 
-    records_per_page = _resolve_records_per_page(records_per_page_env)
+    records_per_page = _resolve_records_per_page_from_args(arguments)
     if records_per_page <= 0:
         records_per_page = 1
 
     return max(math.ceil(num_results_int / records_per_page), 1)
 
 
-def _resolve_records_per_page(env_key: str) -> int:
-    value = os.getenv(env_key, "1")
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 1
+def _resolve_records_per_page_from_args(arguments: dict[str, Any]) -> int:
+    for key in ("records_per_page", "page_size", "per_page"):
+        value = arguments.get(key)
+        if value is None:
+            continue
+        try:
+            parsed = int(value)
+            if parsed > 0:
+                return parsed
+        except (TypeError, ValueError):
+            continue
+    return 1
 
 
 def _resolve_account_override(arguments: dict[str, Any]) -> Optional[str]:
-    for key in ("account_id", "account_override", "user_account_id"):
+    for key in ("account_id", "account_override", "user_account_id", "x_user_id"):
         value = arguments.get(key)
         if value:
             return str(value)

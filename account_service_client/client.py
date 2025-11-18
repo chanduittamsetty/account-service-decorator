@@ -29,28 +29,30 @@ class AccountServiceClient:
 
     async def get_account(
         self,
-        crawler_type: str,
+        type: str,
         account_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        account_type = type
         headers: Dict[str, str] = {}
         if account_id:
             headers["x-user-id"] = account_id
 
-        response = await self.client.get(f"/api/v1/accounts/{crawler_type}/get", headers=headers)
+        response = await self.client.get(f"/api/v1/accounts/{account_type}/get", headers=headers)
         response.raise_for_status()
         return response.json()
 
     async def reserve_account(
         self,
-        crawler_type: str,
+        type: str,
         payload: Dict[str, Any],
         account_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        account_type = type
         headers: Dict[str, str] = {}
         if account_id:
             headers["x-user-id"] = account_id
         response = await self.client.post(
-            f"/api/v1/accounts/{crawler_type}/reserve",
+            f"/api/v1/accounts/{account_type}/reserve",
             json=payload,
             headers=headers,
         )
@@ -60,11 +62,11 @@ class AccountServiceClient:
     async def update_rate_limit(
         self,
         account_id: str,
-        crawler_type: str,
+        type: str,
         increment: int,
     ) -> Dict[str, Any]:
         payload = {
-            "crawler_type": crawler_type,
+            "type": type,
             "increment": increment,
         }
         response = await self.client.post(
