@@ -1,5 +1,5 @@
-from .decorator import account_rate_limit
+from .decorator import AccountServiceError, account_rate_limit
 
-__all__ = ["account_rate_limit"]
+__all__ = ["account_rate_limit", "AccountServiceError"]
 
 
